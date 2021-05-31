@@ -1,0 +1,14 @@
+[run]
+branch = True
+source = serializepy
+omit =
+    */site-packages/*
+    */dist-packages/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    raise NotImplemented
+    def __str__
+    def __repr__
+    if __name__ == .__main__.:
