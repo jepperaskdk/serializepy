@@ -39,35 +39,43 @@ class ASTParseResult():
         self.module = module
 
     def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
-        anno = self.parse_primitive(tree)
+        anno = self.parse_name(tree)
         if anno:
             return anno
 
-        anno = self.parse_list(tree)
+        anno = self.parse_subscript(tree)
         if anno:
             return anno
 
         return None
 
-    def parse_primitive(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def parse_name(self, tree: ast.AnnAssign) -> Optional[Annotation]:
         if isinstance(tree.annotation, ast.Name) and isinstance(tree.value, ast.Name):
             type = tree.annotation.id
             name = tree.value.id
-            located_type: Type = cast(Type, locate(type))
+            located_type: Type = get_type_from_module(type, self.module)
             return Annotation(name, located_type)
         return None
 
-    def parse_list(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def parse_subscript(self, tree: ast.AnnAssign) -> Optional[Annotation]:
         def rec(t: ast.expr) -> str:
             result = ""
             if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
                 result = t.value.id
 
                 if isinstance(t.slice, ast.Index) and isinstance(t.slice.value, ast.Subscript):
+                    # List (one generic type)
                     r = rec(t.slice.value)
                     result += f"[{r}]"
+                elif isinstance(t.slice, ast.Index) and isinstance(t.slice.value, ast.Tuple):
+                    # Dict (multiple generic types)
+                    key_t, val_t = t.slice.value.elts
+                    r = rec(val_t)
+                    result += f"[{key_t.id}, {r}]"
                 elif isinstance(t.slice, ast.Index) and isinstance(t.slice.value, ast.Name):
                     result += f"[{t.slice.value.id}]"
+            if isinstance(t, ast.Name):
+                return t.id
             return result
 
         if isinstance(tree.annotation, ast.Subscript) and isinstance(tree.value, ast.Name):
@@ -80,9 +88,6 @@ class ASTParseResult():
 
     def parse_dict(self, tree: ast.AnnAssign) -> Optional[Annotation]:
         raise NotImplementedError()
-
-    def test(self) -> None:
-        reduce(lambda x, b: x, ['List', 'List', 'int'], "")
 
 
 def get_annotations(type: Type[T]) -> List[Annotation]:
@@ -112,51 +117,43 @@ def get_annotations(type: Type[T]) -> List[Annotation]:
         annotation = parser.parse(n)
         if annotation is None:
             name = n.target.attr if isinstance(n.target, ast.Attribute) else 'unknown'
-            # raise Exception(f"Was unable to find name/type for {name}")
+            raise Exception(f"Was unable to find name/type for {name}")
         else:
             annotations.append(annotation)
     return annotations
 
 
-def deserialize(t: Type[T], o: Dict[str, Any]) -> T:
-    a = t.__dict__
-    b = inspect.getmembers(t)
-    c = get_type_hints(t)
+def deserialize(t: Type[T], obj: Any) -> T:
+    if t in PRIMITIVES:
+        # TODO: Parse? E.g. '1' => 1
+        return obj
+    elif issubclass(t, List) and hasattr(t, '__args__'):
+        generic: Type = cast(Type, t).__args__[0]
+        return cast(T, [deserialize(generic, o) for o in obj])
+    elif issubclass(t, Dict) and hasattr(t, '__args__'):
+        key_t, val_t = cast(Type, t).__args__
+        return cast(T, {k: deserialize(val_t, v) for k, v in obj.items()})
+    elif inspect.isclass(t):
+        annotations = get_annotations(t)
+        o: T = t.__new__(t)
 
-    annotations = get_annotations(t)
-    obj: T = t.__new__(t)
-
-    def get_parsed(annotation: Annotation) -> Any:
-        if anno.type in PRIMITIVES:
-            return o[anno.name]
-
-        # WORK IN PROGRESS, make this recursive.
-
-    for anno in annotations:
-        val = get_parsed(anno)
-        setattr(obj, anno.name, val)
-
-        if anno.type in PRIMITIVES:
-            setattr(obj, anno.name, o[anno.name])
-        elif issubclass(anno.type, List):
-            if hasattr(anno.type, '__args__') and anno.type.__args__:
-                generic = anno.type.__args__[0]
-                if generic in PRIMITIVES:
-                    lst = []
-                    setattr(obj, anno.name, o[anno.name])
-                elif issubclass(generic, List):
-
-            else:
-                setattr(obj, anno.name, o[anno.name])
-            t = 123
-        elif issubclass(anno.type, Dict):
-            pass
-        elif inspect.isclass(anno.type):
-            setattr(obj, anno.name, deserialize(anno.type, o[anno.name]))
-        else:
-            raise Exception(f"Not sure how to parse this type: {anno.type}")
-    return obj
+        for anno in annotations:
+            val = deserialize(anno.type, obj[anno.name])
+            setattr(o, anno.name, val)
+        return o
+    raise Exception(f"Not sure how to parse this type: {t}")
 
 
 def serialize(o: Any) -> Dict[str, Any]:
     raise NotImplementedError()
+
+
+class B():
+    def __init__(self, b: int) -> None:
+        self.b: int = b
+
+
+class A():
+    def __init__(self, a: int, b: B) -> None:
+        self.a: int = a
+        self.b: B = b
