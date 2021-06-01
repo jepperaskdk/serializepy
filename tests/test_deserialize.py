@@ -13,6 +13,7 @@ class TestClass2():
     def __init__(self, c: List[int], e: List[List[int]]) -> None:
         self.c: List[int] = c
         self.e: List[List[int]] = e
+        # self.k = e[1:2]
 
 
 class TestClass3():
@@ -35,7 +36,7 @@ class TestDeserialize():
         assert obj.b
         assert not hasattr(obj, 'd')
 
-    def test_deserialize_subscript(self) -> None:
+    def test_deserialize_list(self) -> None:
         d = {
             'c': [1, 2, 3],
             'e': [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
@@ -43,5 +44,16 @@ class TestDeserialize():
 
         obj: TestClass2 = deserialize(TestClass2, d)
 
-        assert obj.c == [1, 2, 3]
-        assert obj.e == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        # assert obj.c == [1, 2, 3]
+        # assert obj.e == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+
+    def test_deserialize_dict(self) -> None:
+        d = {
+            'c': {'a': 1, 'b': 2, 'c': 3},
+            'e': {{'a': 1, 'b': 2, 'c': 3}, {'a': 4, 'b': 5, 'c': 6}, {'a': 7, 'b': 8, 'c': 9}}
+        }
+
+        obj: TestClass2 = deserialize(TestClass2, d)
+
+        assert obj.c == {'a': 1, 'b': 2, 'c': 3}
+        assert obj.e == {{'a': 1, 'b': 2, 'c': 3}, {'a': 4, 'b': 5, 'c': 6}, {'a': 7, 'b': 8, 'c': 9}}
