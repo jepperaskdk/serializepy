@@ -31,23 +31,26 @@ class Annotation():
 
 
 class ASTParseResult():
-    # https://docs.python.org/3/library/ast.html#ast.AnnAssign
-    # TODO: If we don't have an annotation, check the signature of __init__?
     def __init__(self, module: ModuleType) -> None:
         self.module = module
 
     def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
-        anno = self.parse_name(tree)
+        raise NotImplementedError()
+
+
+class ASTParseResult_3_9(ASTParseResult):
+    def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+        anno = self.__parse_name(tree)
         if anno:
             return anno
 
-        anno = self.parse_subscript(tree)
+        anno = self.__parse_subscript(tree)
         if anno:
             return anno
 
         return None
 
-    def parse_name(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def __parse_name(self, tree: ast.AnnAssign) -> Optional[Annotation]:
         if isinstance(tree.annotation, ast.Name) and isinstance(tree.value, ast.Name):
             type = tree.annotation.id
             name = tree.value.id
@@ -55,7 +58,59 @@ class ASTParseResult():
             return Annotation(name, located_type)
         return None
 
-    def parse_subscript(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def __parse_subscript(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+        def rec(t: ast.expr) -> str:
+            result = ""
+            if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
+                result = t.value.id
+
+                if isinstance(t.slice, ast.Subscript):
+                    # List (one generic type)
+                    r = rec(t.slice)
+                    result += f"[{r}]"
+                elif isinstance(t.slice, ast.Tuple):
+                    # Dict (multiple generic types)
+                    key_t, val_t = t.slice.elts
+                    r = rec(val_t)
+                    result += f"[{key_t.id}, {r}]"
+                elif isinstance(t.slice, ast.Name):
+                    result += f"[{t.slice.id}]"
+            if isinstance(t, ast.Name):
+                return t.id
+            return result
+
+        if isinstance(tree.annotation, ast.Subscript) and isinstance(tree.value, ast.Name):
+            name = tree.value.id
+            type_string = rec(tree.annotation)
+            typ = get_type_from_module(type_string, self.module)
+            return Annotation(name, typ)
+
+        return None
+
+
+class ASTParseResult_3_6(ASTParseResult):
+    # https://docs.python.org/3/library/ast.html#ast.AnnAssign
+    # TODO: If we don't have an annotation, check the signature of __init__?
+    def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+        anno = self.__parse_name(tree)
+        if anno:
+            return anno
+
+        anno = self.__parse_subscript(tree)
+        if anno:
+            return anno
+
+        return None
+
+    def __parse_name(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+        if isinstance(tree.annotation, ast.Name) and isinstance(tree.value, ast.Name):
+            type = tree.annotation.id
+            name = tree.value.id
+            located_type: Type = get_type_from_module(type, self.module)
+            return Annotation(name, located_type)
+        return None
+
+    def __parse_subscript(self, tree: ast.AnnAssign) -> Optional[Annotation]:
         def rec(t: ast.expr) -> str:
             result = ""
             if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
@@ -84,8 +139,12 @@ class ASTParseResult():
 
         return None
 
-    def parse_dict(self, tree: ast.AnnAssign) -> Optional[Annotation]:
-        raise NotImplementedError()
+
+def get_ast_parser_type(module: ModuleType) -> ASTParseResult:
+    if sys.version_info >= (3, 9):
+        return ASTParseResult_3_9(module)
+    else:
+        return ASTParseResult_3_6(module)
 
 
 def get_annotations(type: Type[T]) -> List[Annotation]:
@@ -111,7 +170,7 @@ def get_annotations(type: Type[T]) -> List[Annotation]:
     visitor.generic_visit(tree)
     annotations: List[Annotation] = []
     for n in visitor.nodes:
-        parser = ASTParseResult(module)
+        parser = get_ast_parser_type(module)
         annotation = parser.parse(n)
         if annotation is None:
             name = n.target.attr if isinstance(n.target, ast.Attribute) else 'unknown'
