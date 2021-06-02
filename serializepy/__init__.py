@@ -7,21 +7,11 @@ from types import ModuleType
 from typing import Optional, List, Any, Dict, TypeVar, Type, cast
 
 from serializepy.utilities import get_type_from_module
+from serializepy.visitors import SelfVisitor, SuperVisitor
 
 
 PRIMITIVES = [int, float, bool, str]
 T = TypeVar('T')
-
-
-class SelfVisitor(ast.NodeVisitor):
-    def __init__(self) -> None:
-        self.nodes: List[ast.AnnAssign] = []
-
-    def visit(self, n: ast.AST) -> None:
-        if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Attribute):
-            if isinstance(n.target.value, ast.Name) and n.target.value.id == 'self':
-                self.nodes.append(n)
-        super().visit(n)
 
 
 class Annotation():
@@ -148,7 +138,6 @@ def get_ast_parser_type(module: ModuleType) -> ASTParseResult:
 
 
 def get_annotations(type: Type[T]) -> List[Annotation]:
-
     type_source = inspect.getsource(type)
     module = inspect.getmodule(type)
     if module is None:
@@ -166,10 +155,13 @@ def get_annotations(type: Type[T]) -> List[Annotation]:
             type_source = textwrap.dedent(type_source)
             max_indents -= 1
 
-    visitor = SelfVisitor()
-    visitor.generic_visit(tree)
+    # TODO: Check if this returns ALL self.x = y in the class. We only want the __init__ ones.
+    self_visitor = SelfVisitor()
+    self_visitor.generic_visit(tree)
     annotations: List[Annotation] = []
-    for n in visitor.nodes:
+ 
+    # Iterate self.X = Y assignments
+    for n in self_visitor.nodes:
         parser = get_ast_parser_type(module)
         annotation = parser.parse(n)
         if annotation is None:
@@ -177,6 +169,19 @@ def get_annotations(type: Type[T]) -> List[Annotation]:
             raise Exception(f"Was unable to find name/type for {name}")
         else:
             annotations.append(annotation)
+
+    # Iterate super, if used
+    super_visitor = SuperVisitor()
+    super_visitor.generic_visit(tree)
+
+    # getmro returns the type itself as first value
+    base_classes = inspect.getmro(type)[1:]
+
+    # If super-call in constructor or we dont have constructor, call base-classes
+    if (super_visitor.has_super_call or 'def __init__' not in type_source) and len(base_classes) > 0:
+        # Recursively get annotations for the next base-class
+        annotations.extend(get_annotations(base_classes[0]))
+
     return annotations
 
 

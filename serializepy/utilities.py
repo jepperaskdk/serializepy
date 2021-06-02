@@ -39,7 +39,6 @@ def get_type_from_module(type_string: str, module: ModuleType) -> Type:
 
     # Search imported modules in module
     # Inspired by this: https://stackoverflow.com/a/11781721/3717691
-    # TODO: We limit the search by count, not by depth. Should it be configurable, e.g. when large codebases?
     SEARCHES_LEFT = 1_000
     q = deque([module])
     while q and SEARCHES_LEFT > 0:
