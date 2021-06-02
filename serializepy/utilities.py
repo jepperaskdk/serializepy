@@ -10,6 +10,7 @@ from pydoc import locate
 
 # https://raw.githubusercontent.com/jepperaskdk/pydoctest/main/pydoctest/utilities.py
 
+
 def get_type_from_module(type_string: str, module: ModuleType) -> Type:
     """Attempts to return the type, given the type_string and module it is extracted from.
 

@@ -1,12 +1,10 @@
-import builtins
-from functools import reduce
+import sys
 import inspect
 import ast
 import textwrap
-from pydoc import locate
 
-from types import FunctionType, ModuleType
-from typing import Optional, List, Any, Dict, TypeVar, Type, cast, get_type_hints
+from types import ModuleType
+from typing import Optional, List, Any, Dict, TypeVar, Type, cast
 
 from serializepy.utilities import get_type_from_module
 
@@ -123,14 +121,25 @@ def get_annotations(type: Type[T]) -> List[Annotation]:
     return annotations
 
 
+# Inspired by https://stackoverflow.com/a/54241536/3717691
+def get_type_class(typ: Type) -> Type:
+    if sys.version_info >= (3, 7):
+        if hasattr(typ, '__origin__'):
+            return typ.__origin__
+    else:
+        if hasattr(typ, '__extra__'):
+            return typ.__extra__
+    return typ
+
+
 def deserialize(t: Type[T], obj: Any) -> T:
     if t in PRIMITIVES:
-        # TODO: Parse? E.g. '1' => 1
+        # TODO: Parse? E.g. '1' => 1, if t == int
         return obj
-    elif issubclass(t, List) and hasattr(t, '__args__'):
+    elif issubclass(get_type_class(t), List) and hasattr(t, '__args__'):
         generic: Type = cast(Type, t).__args__[0]
         return cast(T, [deserialize(generic, o) for o in obj])
-    elif issubclass(t, Dict) and hasattr(t, '__args__'):
+    elif issubclass(get_type_class(t), Dict) and hasattr(t, '__args__'):
         key_t, val_t = cast(Type, t).__args__
         return cast(T, {k: deserialize(val_t, v) for k, v in obj.items()})
     elif inspect.isclass(t):
