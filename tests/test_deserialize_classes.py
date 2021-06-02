@@ -101,6 +101,7 @@ def test_deserialize_nested_class() -> None:
     }
 
     obj: A = deserialize(A, d)
+    assert isinstance(obj, A)
     assert obj.a == 1
     assert isinstance(obj.b, B)
     assert obj.b.b == 2

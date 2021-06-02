@@ -65,12 +65,12 @@ class ASTParseResult_3_9(ASTParseResult):
                 result = t.value.id
 
                 if isinstance(t.slice, ast.Subscript):
-                    # List (one generic type)
+                    # one generic type
                     r = rec(t.slice)
                     result += f"[{r}]"
                 elif isinstance(t.slice, ast.Tuple):
-                    # Dict (multiple generic types)
-                    key_t, val_t = t.slice.elts
+                    # multiple generic types
+                    key_t, val_t = cast(List[ast.Name], t.slice.elts)
                     r = rec(val_t)
                     result += f"[{key_t.id}, {r}]"
                 elif isinstance(t.slice, ast.Name):
@@ -117,12 +117,12 @@ class ASTParseResult_3_6(ASTParseResult):
                 result = t.value.id
 
                 if isinstance(t.slice, ast.Index) and isinstance(t.slice.value, ast.Subscript):
-                    # List (one generic type)
+                    # one generic type
                     r = rec(t.slice.value)
                     result += f"[{r}]"
                 elif isinstance(t.slice, ast.Index) and isinstance(t.slice.value, ast.Tuple):
-                    # Dict (multiple generic types)
-                    key_t, val_t = t.slice.value.elts
+                    # multiple generic types
+                    key_t, val_t = cast(List[ast.Name], t.slice.value.elts)
                     r = rec(val_t)
                     result += f"[{key_t.id}, {r}]"
                 elif isinstance(t.slice, ast.Index) and isinstance(t.slice.value, ast.Name):
@@ -192,8 +192,8 @@ def get_type_class(typ: Type) -> Type:
 
 
 def deserialize(t: Type[T], obj: Any) -> T:
-    if t in PRIMITIVES:
-        # TODO: Parse? E.g. '1' => 1, if t == int
+    if t in PRIMITIVES or t == Any:
+        # TODO: Parse primitives? E.g. '1' => 1, if t == int
         return obj
     elif issubclass(get_type_class(t), List) and hasattr(t, '__args__'):
         generic: Type = cast(Type, t).__args__[0]
@@ -214,14 +214,3 @@ def deserialize(t: Type[T], obj: Any) -> T:
 
 def serialize(o: Any) -> Dict[str, Any]:
     raise NotImplementedError()
-
-
-class B():
-    def __init__(self, b: int) -> None:
-        self.b: int = b
-
-
-class A():
-    def __init__(self, a: int, b: B) -> None:
-        self.a: int = a
-        self.b: B = b
