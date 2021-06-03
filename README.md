@@ -50,6 +50,27 @@ assert obj.b.b == 2
 
 ```
 
+Inheritance:
+```
+class A():
+    def __init__(self, a: int) -> None:
+        self.a: int = a
+
+class B(A):
+    def __init__(self, a: int, b: int) -> None:
+        super().__init__(a)
+        self.b: int = b
+d = {
+    'a': 5,
+    'b': 7
+}
+
+obj: B = deserialize(B, d)
+
+assert isinstance(obj, B)
+assert obj.a == 5
+assert obj.b == 7
+```
 
 
 License
