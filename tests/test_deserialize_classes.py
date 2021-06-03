@@ -105,3 +105,67 @@ def test_deserialize_nested_class() -> None:
     assert obj.a == 1
     assert isinstance(obj.b, B)
     assert obj.b.b == 2
+
+
+# Signature has type, but self.x = y is not annotated
+class SignatureBased():
+    def __init__(self, a: int, b: List[int], c: List[List[int]]) -> None:
+        self.a = a
+        self.b = b
+        self.c = c
+
+
+def test_deserialize_from_signature() -> None:
+    d = {
+        'a': 1,
+        'b': [1, 2, 3],
+        'c': [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    }
+
+    obj: SignatureBased = deserialize(SignatureBased, d)
+    assert isinstance(obj, SignatureBased)
+    assert obj.a == 1
+    assert obj.b == [1, 2, 3]
+    assert obj.c == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+
+
+class NotSignatureBased():
+    def __init__(self, a, b, c) -> None:
+        self.a: int = a
+        self.b: List[int] = b
+        self.c: List[List[int]] = c
+
+
+def test_deserialize_from_body() -> None:
+    d = {
+        'a': 1,
+        'b': [1, 2, 3],
+        'c': [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    }
+
+    obj: NotSignatureBased = deserialize(NotSignatureBased, d)
+    assert isinstance(obj, NotSignatureBased)
+    assert obj.a == 1
+    assert obj.b == [1, 2, 3]
+    assert obj.c == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+
+
+class MixOfBoth():
+    def __init__(self, a: int, c) -> None:
+        self.a = a
+        self.b: int = 0
+        self.c: int = c
+
+
+def test_mix_of_both() -> None:
+    d = {
+        'a': 1,
+        'b': 2,
+        'c': 3
+    }
+
+    obj: MixOfBoth = deserialize(MixOfBoth, d)
+    assert isinstance(obj, MixOfBoth)
+    assert obj.a == 1
+    assert obj.b == 2
+    assert obj.c == 3

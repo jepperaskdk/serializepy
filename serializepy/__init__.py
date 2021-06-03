@@ -4,7 +4,7 @@ import ast
 import textwrap
 
 from types import ModuleType
-from typing import Optional, List, Any, Dict, TypeVar, Type, cast
+from typing import Optional, List, Any, Dict, TypeVar, Type, Union, cast
 
 from serializepy.utilities import get_type_from_module
 from serializepy.visitors import SelfVisitor, SuperVisitor
@@ -21,15 +21,16 @@ class Annotation():
 
 
 class ASTParseResult():
-    def __init__(self, module: ModuleType) -> None:
+    def __init__(self, module: ModuleType, signature_parameters: Dict[str, Type]) -> None:
         self.module = module
+        self.signature_parameters = signature_parameters
 
-    def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def parse(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
         raise NotImplementedError()
 
 
 class ASTParseResult_3_9(ASTParseResult):
-    def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def parse(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
         anno = self.__parse_name(tree)
         if anno:
             return anno
@@ -40,15 +41,21 @@ class ASTParseResult_3_9(ASTParseResult):
 
         return None
 
-    def __parse_name(self, tree: ast.AnnAssign) -> Optional[Annotation]:
-        if isinstance(tree.annotation, ast.Name) and isinstance(tree.value, ast.Name):
-            type = tree.annotation.id
-            name = tree.value.id
-            located_type: Type = get_type_from_module(type, self.module)
+    def __parse_name(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
+        if isinstance(tree, ast.AnnAssign) and isinstance(tree.annotation, ast.Name) and isinstance(tree.target, ast.Attribute):
+            name = tree.target.attr
+            type_string = tree.annotation.id
+            located_type: Type = get_type_from_module(type_string, self.module)
             return Annotation(name, located_type)
+        elif isinstance(tree, ast.Assign) and isinstance(tree.value, ast.Name):
+            name = tree.value.id
+            typ = self.signature_parameters.get(name, None)
+            if typ is None:
+                raise Exception(f"Unable to get type for variable {name}")
+            return Annotation(name, typ)
         return None
 
-    def __parse_subscript(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def __parse_subscript(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
         def rec(t: ast.expr) -> str:
             result = ""
             if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
@@ -69,7 +76,7 @@ class ASTParseResult_3_9(ASTParseResult):
                 return t.id
             return result
 
-        if isinstance(tree.annotation, ast.Subscript) and isinstance(tree.value, ast.Name):
+        if isinstance(tree, ast.AnnAssign) and isinstance(tree.annotation, ast.Subscript) and isinstance(tree.value, ast.Name):
             name = tree.value.id
             type_string = rec(tree.annotation)
             typ = get_type_from_module(type_string, self.module)
@@ -80,8 +87,7 @@ class ASTParseResult_3_9(ASTParseResult):
 
 class ASTParseResult_3_6(ASTParseResult):
     # https://docs.python.org/3/library/ast.html#ast.AnnAssign
-    # TODO: If we don't have an annotation, check the signature of __init__?
-    def parse(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def parse(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
         anno = self.__parse_name(tree)
         if anno:
             return anno
@@ -92,15 +98,21 @@ class ASTParseResult_3_6(ASTParseResult):
 
         return None
 
-    def __parse_name(self, tree: ast.AnnAssign) -> Optional[Annotation]:
-        if isinstance(tree.annotation, ast.Name) and isinstance(tree.value, ast.Name):
+    def __parse_name(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
+        if isinstance(tree, ast.AnnAssign) and isinstance(tree.annotation, ast.Name) and isinstance(tree.target, ast.Attribute):
+            name = tree.target.attr
             type = tree.annotation.id
-            name = tree.value.id
             located_type: Type = get_type_from_module(type, self.module)
             return Annotation(name, located_type)
+        elif isinstance(tree, ast.Assign) and isinstance(tree.value, ast.Name):
+            name = tree.value.id
+            typ = self.signature_parameters.get(name, None)
+            if typ is None:
+                raise Exception(f"Unable to get type for variable {name}")
+            return Annotation(name, typ)
         return None
 
-    def __parse_subscript(self, tree: ast.AnnAssign) -> Optional[Annotation]:
+    def __parse_subscript(self, tree: Union[ast.AnnAssign, ast.Assign]) -> Optional[Annotation]:
         def rec(t: ast.expr) -> str:
             result = ""
             if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
@@ -121,7 +133,7 @@ class ASTParseResult_3_6(ASTParseResult):
                 return t.id
             return result
 
-        if isinstance(tree.annotation, ast.Subscript) and isinstance(tree.value, ast.Name):
+        if isinstance(tree, ast.AnnAssign) and isinstance(tree.annotation, ast.Subscript) and isinstance(tree.value, ast.Name):
             name = tree.value.id
             type_string = rec(tree.annotation)
             typ = get_type_from_module(type_string, self.module)
@@ -130,11 +142,11 @@ class ASTParseResult_3_6(ASTParseResult):
         return None
 
 
-def get_ast_parser_type(module: ModuleType) -> ASTParseResult:
+def get_ast_parser_type(module: ModuleType, signature_parameters: Dict[str, Type] = {}) -> ASTParseResult:
     if sys.version_info >= (3, 9):
-        return ASTParseResult_3_9(module)
+        return ASTParseResult_3_9(module, signature_parameters)
     else:
-        return ASTParseResult_3_6(module)
+        return ASTParseResult_3_6(module, signature_parameters)
 
 
 def get_annotations(type: Type[T]) -> List[Annotation]:
@@ -155,17 +167,22 @@ def get_annotations(type: Type[T]) -> List[Annotation]:
             type_source = textwrap.dedent(type_source)
             max_indents -= 1
 
+    # Get signature types and fallback if no annotation in body of __init__
+    parameters: Dict[str, Type] = {k: v.annotation for k, v in inspect.signature(type.__init__).parameters.items()}
     # TODO: Check if this returns ALL self.x = y in the class. We only want the __init__ ones.
     self_visitor = SelfVisitor()
     self_visitor.generic_visit(tree)
     annotations: List[Annotation] = []
- 
+
     # Iterate self.X = Y assignments
     for n in self_visitor.nodes:
-        parser = get_ast_parser_type(module)
+        parser = get_ast_parser_type(module, parameters)
         annotation = parser.parse(n)
         if annotation is None:
-            name = n.target.attr if isinstance(n.target, ast.Attribute) else 'unknown'
+            if isinstance(n, ast.AnnAssign):
+                name = n.target.attr if isinstance(n.target, ast.Attribute) else 'unknown'
+            elif isinstance(n, ast.Assign) and isinstance(n.value, ast.Name):
+                name = n.value.id
             raise Exception(f"Was unable to find name/type for {name}")
         else:
             annotations.append(annotation)

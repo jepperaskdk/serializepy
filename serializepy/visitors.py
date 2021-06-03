@@ -1,14 +1,17 @@
 import ast
-from typing import List
+from typing import List, Union
 
 
 class SelfVisitor(ast.NodeVisitor):
     def __init__(self) -> None:
-        self.nodes: List[ast.AnnAssign] = []
+        self.nodes: List[Union[ast.Assign, ast.AnnAssign]] = []
 
     def visit(self, n: ast.AST) -> None:
         if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Attribute):
             if isinstance(n.target.value, ast.Name) and n.target.value.id == 'self':
+                self.nodes.append(n)
+        elif isinstance(n, ast.Assign) and len(n.targets) > 0 and isinstance(n.targets[0], ast.Attribute):
+            if isinstance(n.targets[0].value, ast.Name) and n.targets[0].value.id == 'self':
                 self.nodes.append(n)
         super().visit(n)
 
