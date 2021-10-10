@@ -6,5 +6,6 @@
     "python.linting.pycodestyleArgs": [
         "--max-line-length=99999",
         "--ignore=E201, E202"
-    ]
+    ],
+    "pydoctest.workingDirectory": "./serializepy"
 }

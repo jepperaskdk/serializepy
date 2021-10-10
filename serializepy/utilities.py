@@ -22,7 +22,7 @@ def get_type_from_module(type_string: str, module: ModuleType) -> Type:
         Exception: If unable to find the type, we throw an Exception.
 
     Returns:
-        LocateResult: A LocateResult wrapping the type when found.
+        Type: A LocateResult wrapping the type when found.
     """
     # First let pydoc attempt to locate the type
     located_type: Type = cast(Type, locate(type_string))
